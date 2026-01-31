@@ -140,9 +140,23 @@ def extract_zip_files():
 
         print(f"Extração concluida: {zip_name}")
 
+def list_extracted_files() -> list[str]:
+    """
+    Lista todos os arquivos dentro da pasta de extração, percorrendo subpastas
+    """
+
+    extracted_files = []
+
+    for root, _, files in os.walk(BASE_EXTRACT_DIR):
+        for file in files:
+            extracted_files.append(os.path.join(root, file))
+
+    return extracted_files
+
 if __name__ == "__main__":
     print("Iniciando download dos últimos 3 trimestres...")
     download_last_three_trimesters()
     print("Iniciando a extração dos arquivos ZIP...")
     extract_zip_files()
     print("Processo finalizado.")
+
