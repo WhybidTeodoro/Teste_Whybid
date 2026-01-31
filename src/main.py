@@ -1,10 +1,15 @@
 import os
 import requests
+import zipfile
 from bs4 import BeautifulSoup
 from typing import List, Tuple
 
 BASE_URL = "https://dadosabertos.ans.gov.br/FTP/PDA/demonstracoes_contabeis/"
 BASE_DOWNLOAD_DIR = "W:/Projetos/Teste_Whybid/data/raw/zips"
+BASE_EXTRACT_DIR = os.path.join(os.path.dirname(os.path.dirname((os.path.abspath(__file__)))),
+                                "data",
+                                "raw",
+                                "extracted")
 
 
 def get_links(url: str) -> List[str]:
@@ -44,8 +49,7 @@ def discover_available_trimesters() -> List[Tuple[int, int]]:
         files = get_links(year_url)
 
         for file in files:
-            # Padrão mais recente: 1T2025.zip
-            if file.endswith(".zip") and len(file) >= 6 and file[0].isdigit() and "T" in file:
+            if file.endswith(".zip") and file[0].isdigit() and "T" in file:
                 try:
                     trimestre = int(file[0])
                     trimesters.append((year_number, trimestre))
@@ -105,7 +109,40 @@ def download_last_three_trimesters():
         print(f"Download concluído: {filename}")
 
 
+def extract_zip_files():
+    """
+    Extrai todos os arquivos ZIP da pasta de downloads para a pasta extracted
+    """
+    ensure_directory_exists(BASE_EXTRACT_DIR)
+
+    zip_files = [
+        file for file in os.listdir(BASE_DOWNLOAD_DIR)
+        if file.endswith(".zip")
+    ]
+
+    if not zip_files:
+        print("Nenhum arquivo Zip encontrado.")
+        return
+
+    for zip_name in zip_files:
+        zip_path = os.path.join(BASE_DOWNLOAD_DIR, zip_name)
+        extract_folder_name = zip_name.replace(".zip", "")
+        extract_path = os.path.join(BASE_EXTRACT_DIR, extract_folder_name)
+
+        if os.path.exists(extract_path):
+            print(f"ZIP já extraido, pulando : {zip_name}")
+            continue
+
+        print(f"Extraindo {zip_name}")
+
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            zip_ref.extractall(extract_path)
+
+        print(f"Extração concluida: {zip_name}")
+
 if __name__ == "__main__":
     print("Iniciando download dos últimos 3 trimestres...")
     download_last_three_trimesters()
+    print("Iniciando a extração dos arquivos ZIP...")
+    extract_zip_files()
     print("Processo finalizado.")
