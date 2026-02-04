@@ -1,9 +1,12 @@
 from typing import Dict, List, Tuple
+import os
 import re
+import requests
 
 from utils import list_links
 
 BASE_URL = "https://dadosabertos.ans.gov.br/FTP/PDA/demonstracoes_contabeis/"
+BASE_DOWNLOAD_DIR = "data/raw/zips"
 
 
 def get_available_years() -> List[int]:
@@ -86,7 +89,6 @@ def get_last_three_trimesters_with_zips() -> Dict[Tuple[int, int], List[str]]:
     dos 3 trimestres mais recentes disponíveis.
     """
     years = get_available_years()
-
     all_trimesters: Dict[Tuple[int, int], List[str]] = {}
 
     for year in years:
@@ -101,7 +103,49 @@ def get_last_three_trimesters_with_zips() -> Dict[Tuple[int, int], List[str]]:
 
     last_three = sorted_trimesters[:3]
 
-    return {
-        key: all_trimesters[key]
-        for key in last_three
-    }
+    return {key: all_trimesters[key] for key in last_three}
+
+
+def ensure_directory(path: str) -> None:
+    """
+    Garante que um diretório exista.
+    """
+    os.makedirs(path, exist_ok=True)
+
+
+def download_zip_files(
+    trimesters: Dict[Tuple[int, int], List[str]]
+) -> List[Tuple[int, int, str]]:
+    """
+    Faz o download incremental dos ZIPs dos trimestres informados.
+
+    Retorna uma lista de tuplas:
+    (ano, trimestre, caminho_local_zip)
+    """
+    downloaded_files: List[Tuple[int, int, str]] = []
+
+    ensure_directory(BASE_DOWNLOAD_DIR)
+
+    for (year, quarter), urls in trimesters.items():
+        quarter_dir = os.path.join(BASE_DOWNLOAD_DIR, f"{year}_{quarter}T")
+        ensure_directory(quarter_dir)
+
+        for url in urls:
+            filename = os.path.basename(url)
+            local_path = os.path.join(quarter_dir, filename)
+
+            if os.path.exists(local_path):
+                downloaded_files.append((year, quarter, local_path))
+                continue
+
+            response = requests.get(url, stream=True, timeout=60)
+            response.raise_for_status()
+
+            with open(local_path, "wb") as file:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        file.write(chunk)
+
+            downloaded_files.append((year, quarter, local_path))
+
+    return downloaded_files
