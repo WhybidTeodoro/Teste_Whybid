@@ -16,11 +16,11 @@ def project_root() -> Path:
 
 ROOT_DIR = project_root()
 
-CSV_INPUT = ROOT_DIR / "teste_1" / "output" / "despesas_eventos_sinistros.csv"
 OUTPUT_DIR = ROOT_DIR / "teste_2" / "output"
 
+CSV_INPUT = OUTPUT_DIR / "despesas_enriquecidas.csv"
 CSV_VALIDATED = OUTPUT_DIR / "despesas_validadas.csv"
-CSV_INVALID_CNPJS = OUTPUT_DIR / "cnpjs_invalidos.csv"
+CSV_INVALID = OUTPUT_DIR / "registros_invalidos.csv"
 
 DELIMITER = ";"
 
@@ -41,7 +41,7 @@ def only_digits(value: str) -> str:
 
 def calculate_cnpj_digit(numbers: str, weights: List[int]) -> str:
     """
-    Calcula um dígito verificador de CNPJ dado um conjunto de pesos.
+    Calcula um dígito verificador do CNPJ.
     """
     total = sum(int(n) * w for n, w in zip(numbers, weights))
     remainder = total % 11
@@ -50,9 +50,9 @@ def calculate_cnpj_digit(numbers: str, weights: List[int]) -> str:
 
 def is_valid_cnpj(cnpj: str) -> bool:
     """
-    Valida um CNPJ:
-    - 14 dígitos
-    - não pode ser sequência repetida (ex: 000...0)
+    Valida CNPJ:
+    - deve ter 14 dígitos
+    - não pode ser sequência repetida
     - valida dígitos verificadores
     """
     digits = only_digits(cnpj)
@@ -72,13 +72,14 @@ def is_valid_cnpj(cnpj: str) -> bool:
     base_13 = digits[:12] + digit_1
     digit_2 = calculate_cnpj_digit(base_13, weights_2)
 
-    return digits[-2:] == digit_1 + digit_2
+    return digits[-2:] == (digit_1 + digit_2)
 
 
 def parse_positive_float(value: str) -> Optional[float]:
     """
     Converte string para float positivo.
     Aceita formatos como '1234.56' e '1.234,56'.
+
     Retorna None se inválido ou <= 0.
     """
     raw = (value or "").strip()
@@ -96,11 +97,12 @@ def parse_positive_float(value: str) -> Optional[float]:
 
 def validate_row(row: Dict[str, str]) -> Tuple[bool, List[str]]:
     """
-    Valida uma linha
+    Valida uma linha e retorna:
+    (valido, lista_de_motivos)
     """
     reasons: List[str] = []
 
-    cnpj = row.get("CNPJ", "")
+    cnpj = (row.get("CNPJ", "") or "").strip()
     if not is_valid_cnpj(cnpj):
         reasons.append("CNPJ_INVALIDO")
 
@@ -112,31 +114,36 @@ def validate_row(row: Dict[str, str]) -> Tuple[bool, List[str]]:
     if valor is None:
         reasons.append("VALOR_INVALIDO_OU_NAO_POSITIVO")
 
+    # Se não teve match no cadastro, provavelmente UF/Modalidade ficam "Desconhecido"
+    # Isso NÃO invalida o registro, pois o enunciado pede validar CNPJ/valor/razao.
+
     return (len(reasons) == 0), reasons
 
 
 def validate_csv() -> None:
     """
-    Lê o CSV do Teste 1, valida registros
+    Lê o CSV enriquecido e gera:
+    - despesas_validadas.csv (somente válidos)
+    - registros_invalidos.csv (relatório com motivo)
     """
     ensure_output_dir()
 
     if not CSV_INPUT.exists():
         raise FileNotFoundError(
-            f"CSV de entrada não encontrado: {CSV_INPUT}. "
-            "Execute o Teste 1 primeiro."
+            f"Arquivo não encontrado: {CSV_INPUT}. Rode antes: python teste_2/enricher.py"
         )
 
     valid_rows: List[Dict[str, str]] = []
-    invalid_cnpj_rows: List[Dict[str, str]] = []
+    invalid_rows: List[Dict[str, str]] = []
 
-    with CSV_INPUT.open(mode="r", encoding="utf-8", newline="") as file:
-        reader = csv.DictReader(file, delimiter=DELIMITER)
+    with CSV_INPUT.open(mode="r", encoding="utf-8", newline="") as fin:
+        reader = csv.DictReader(fin, delimiter=DELIMITER)
 
         if not reader.fieldnames:
             raise ValueError("CSV de entrada não possui cabeçalho.")
 
-        fieldnames = list(reader.fieldnames)
+        input_fields = list(reader.fieldnames)
+        invalid_fields = input_fields + ["Motivos"]
 
         for row in reader:
             is_valid, reasons = validate_row(row)
@@ -144,33 +151,23 @@ def validate_csv() -> None:
             if is_valid:
                 valid_rows.append(row)
             else:
-                if "CNPJ_INVALIDO" in reasons:
-                    invalid_cnpj_rows.append({
-                        "CNPJ": row.get("CNPJ", ""),
-                        "RazaoSocial": row.get("RazaoSocial", ""),
-                        "Ano": row.get("Ano", ""),
-                        "Trimestre": row.get("Trimestre", ""),
-                        "ValorDespesas": row.get("ValorDespesas", ""),
-                        "Motivos": ",".join(reasons),
-                    })
+                row_copy = dict(row)
+                row_copy["Motivos"] = ",".join(reasons)
+                invalid_rows.append(row_copy)
 
-    with CSV_VALIDATED.open(mode="w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames, delimiter=DELIMITER)
+    with CSV_VALIDATED.open(mode="w", encoding="utf-8", newline="") as fout:
+        writer = csv.DictWriter(fout, fieldnames=input_fields, delimiter=DELIMITER)
         writer.writeheader()
         writer.writerows(valid_rows)
 
-    with CSV_INVALID_CNPJS.open(mode="w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=["CNPJ", "RazaoSocial", "Ano", "Trimestre", "ValorDespesas", "Motivos"],
-            delimiter=DELIMITER,
-        )
+    with CSV_INVALID.open(mode="w", encoding="utf-8", newline="") as fout:
+        writer = csv.DictWriter(fout, fieldnames=invalid_fields, delimiter=DELIMITER)
         writer.writeheader()
-        writer.writerows(invalid_cnpj_rows)
+        writer.writerows(invalid_rows)
 
     print("✅ Validação concluída!")
-    print(f"   ✔ Registros válidos: {len(valid_rows)} -> {CSV_VALIDATED}")
-    print(f"   ✔ Relatório CNPJs inválidos: {len(invalid_cnpj_rows)} -> {CSV_INVALID_CNPJS}")
+    print(f"   ✔ Válidos: {len(valid_rows)} -> {CSV_VALIDATED}")
+    print(f"   ✔ Inválidos: {len(invalid_rows)} -> {CSV_INVALID}")
 
 
 if __name__ == "__main__":
