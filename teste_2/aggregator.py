@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import statistics
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
 
 
 def project_root() -> Path:
@@ -17,8 +17,9 @@ def project_root() -> Path:
 ROOT_DIR = project_root()
 
 OUTPUT_DIR = ROOT_DIR / "teste_2" / "output"
-CSV_ENRICHED = OUTPUT_DIR / "despesas_enriquecidas.csv"
-CSV_AGGREGATED = OUTPUT_DIR / "despesas_agregadas.csv"
+
+CSV_INPUT = OUTPUT_DIR / "despesas_validadas.csv"
+CSV_OUTPUT = OUTPUT_DIR / "despesas_agregadas.csv"
 
 DELIMITER = ";"
 
@@ -30,6 +31,13 @@ def ensure_output_dir() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def safe_str(value: str) -> str:
+    """
+    Evita None e remove espaços extras.
+    """
+    return (value or "").strip()
+
+
 def parse_positive_float(value: str) -> Optional[float]:
     """
     Converte string para float positivo.
@@ -37,7 +45,7 @@ def parse_positive_float(value: str) -> Optional[float]:
 
     Retorna None se inválido ou <= 0.
     """
-    raw = (value or "").strip()
+    raw = safe_str(value)
     if not raw:
         return None
 
@@ -50,44 +58,34 @@ def parse_positive_float(value: str) -> Optional[float]:
     return number if number > 0 else None
 
 
-def safe_str(value: str) -> str:
-    """
-    Evita None e remove espaços extras.
-    """
-    return (value or "").strip()
-
-
-def aggregate_expenses() -> None:
+def aggregate() -> None:
     """
     Agrupa por (RazaoSocial, UF) e calcula:
     - Total de despesas
-    - Média por trimestre (com base no total por trimestre)
+    - Média por trimestre (baseada no total por trimestre)
     - Desvio padrão entre trimestres
-
-    Ordena por total (desc) e gera despesas_agregadas.csv.
     """
     ensure_output_dir()
 
-    if not CSV_ENRICHED.exists():
+    if not CSV_INPUT.exists():
         raise FileNotFoundError(
-            f"CSV enriquecido não encontrado: {CSV_ENRICHED}. "
-            "Rode primeiro: python teste_2/enricher.py"
+            f"Arquivo não encontrado: {CSV_INPUT}. Rode antes: python teste_2/validator.py"
         )
 
-    quarterly_totals: Dict[Tuple[str, str], Dict[Tuple[str, str], float]] = {}
+    # Estrutura:
+    # groups[(RazaoSocial, UF)][(Ano, Trimestre)] = soma_do_trimestre
+    groups: Dict[Tuple[str, str], Dict[Tuple[str, str], float]] = {}
 
-    with CSV_ENRICHED.open(mode="r", encoding="utf-8", newline="") as file:
-        reader = csv.DictReader(file, delimiter=DELIMITER)
-
+    with CSV_INPUT.open(mode="r", encoding="utf-8", newline="") as fin:
+        reader = csv.DictReader(fin, delimiter=DELIMITER)
         if not reader.fieldnames:
-            raise ValueError("CSV enriquecido não possui cabeçalho.")
+            raise ValueError("CSV de entrada não possui cabeçalho.")
 
         for row in reader:
             razao = safe_str(row.get("RazaoSocial", ""))
             uf = safe_str(row.get("UF", "Desconhecido")) or "Desconhecido"
             ano = safe_str(row.get("Ano", ""))
             trimestre = safe_str(row.get("Trimestre", ""))
-
 
             if not razao or not ano or not trimestre:
                 continue
@@ -99,38 +97,33 @@ def aggregate_expenses() -> None:
             group_key = (razao, uf)
             quarter_key = (ano, trimestre)
 
-            quarterly_totals.setdefault(group_key, {})
-            quarterly_totals[group_key][quarter_key] = (
-                quarterly_totals[group_key].get(quarter_key, 0.0) + valor
-            )
-
+            groups.setdefault(group_key, {})
+            groups[group_key][quarter_key] = groups[group_key].get(quarter_key, 0.0) + valor
 
     results: List[Dict[str, object]] = []
 
-    for (razao, uf), quarter_map in quarterly_totals.items():
+    for (razao, uf), quarter_map in groups.items():
         quarter_values = list(quarter_map.values())
 
         total = sum(quarter_values)
-        mean = statistics.mean(quarter_values) if quarter_values else 0.0
-
+        media = statistics.mean(quarter_values) if quarter_values else 0.0
 
         if len(quarter_values) >= 2:
-            std_dev = statistics.pstdev(quarter_values)
+            desvio = statistics.pstdev(quarter_values)
         else:
-            std_dev = 0.0
+            desvio = 0.0
 
         results.append({
             "RazaoSocial": razao,
             "UF": uf,
             "TotalDespesas": round(total, 2),
-            "MediaDespesasPorTrimestre": round(mean, 2),
-            "DesvioPadraoDespesas": round(std_dev, 2),
+            "MediaDespesasPorTrimestre": round(media, 2),
+            "DesvioPadraoDespesas": round(desvio, 2),
             "QtdTrimestres": len(quarter_values),
         })
 
-
+    # Ordena pelo total (maior -> menor)
     results.sort(key=lambda item: float(item["TotalDespesas"]), reverse=True)
-
 
     fieldnames = [
         "RazaoSocial",
@@ -141,15 +134,15 @@ def aggregate_expenses() -> None:
         "QtdTrimestres",
     ]
 
-    with CSV_AGGREGATED.open(mode="w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames, delimiter=DELIMITER)
+    with CSV_OUTPUT.open(mode="w", encoding="utf-8", newline="") as fout:
+        writer = csv.DictWriter(fout, fieldnames=fieldnames, delimiter=DELIMITER)
         writer.writeheader()
         writer.writerows(results)
 
     print("✅ Agregação concluída!")
     print(f"   ✔ Grupos (RazaoSocial + UF): {len(results)}")
-    print(f"   ✔ CSV gerado: {CSV_AGGREGATED}")
+    print(f"   ✔ CSV gerado: {CSV_OUTPUT}")
 
 
 if __name__ == "__main__":
-    aggregate_expenses()
+    aggregate()
