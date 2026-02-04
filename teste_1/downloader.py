@@ -9,9 +9,12 @@ BASE_URL = "https://dadosabertos.ans.gov.br/FTP/PDA/demonstracoes_contabeis/"
 BASE_DOWNLOAD_DIR = "data/raw/zips"
 
 
+ZIP_PATTERN = re.compile(r"([1-4])T(20\d{2})\.zip", re.IGNORECASE)
+
+
 def get_available_years() -> List[int]:
     """
-    Descobre os anos disponíveis na base da ANS.
+    Lista os anos disponíveis na base da ANS.
     """
     links = list_links(BASE_URL)
 
@@ -24,75 +27,42 @@ def get_available_years() -> List[int]:
     return sorted(years)
 
 
-def extract_year_quarter_from_text(text: str) -> Tuple[int, int] | None:
+def get_zip_files_for_year(year: int) -> Dict[Tuple[int, int], List[str]]:
     """
-    Extrai (ano, trimestre) a partir de um texto usando regex.
+    Retorna todos os arquivos ZIP de um ano,
+    organizados por (ano, trimestre).
     """
-    pattern = re.compile(r'([1-4])\s*T\s*[_-]?\s*(20\d{2})', re.IGNORECASE)
-    match = pattern.search(text)
+    year_url = f"{BASE_URL}{year}/"
+    links = list_links(year_url)
 
-    if not match:
-        return None
-
-    quarter = int(match.group(1))
-    year = int(match.group(2))
-
-    return year, quarter
-
-
-def find_zip_files_for_year(year: int) -> Dict[Tuple[int, int], List[str]]:
-    """
-    Navega recursivamente pela estrutura de um ano e encontra
-    todos os arquivos ZIP associados a trimestres.
-    """
-    base_year_url = f"{BASE_URL}{year}/"
     result: Dict[Tuple[int, int], List[str]] = {}
 
-    stack: List[str] = [base_year_url]
+    for link in links:
+        match = ZIP_PATTERN.match(link)
 
-    while stack:
-        current_url = stack.pop()
-        links = list_links(current_url)
+        if not match:
+            continue
 
-        for link in links:
-            if link == "../":
-                continue
+        quarter = int(match.group(1))
+        year_from_file = int(match.group(2))
 
-            full_url = f"{current_url}{link}"
+        full_url = f"{year_url}{link}"
+        key = (year_from_file, quarter)
 
-            if link.endswith("/"):
-                stack.append(full_url)
-                continue
-
-            if not link.lower().endswith(".zip"):
-                continue
-
-            extracted = (
-                extract_year_quarter_from_text(link)
-                or extract_year_quarter_from_text(current_url)
-            )
-
-            if not extracted:
-                continue
-
-            year_q, quarter = extracted
-            key = (year_q, quarter)
-
-            result.setdefault(key, []).append(full_url)
+        result.setdefault(key, []).append(full_url)
 
     return result
 
 
 def get_last_three_trimesters_with_zips() -> Dict[Tuple[int, int], List[str]]:
     """
-    Retorna um dicionário contendo apenas os ZIPs
-    dos 3 trimestres mais recentes disponíveis.
+    Retorna os ZIPs dos 3 trimestres mais recentes disponíveis.
     """
     years = get_available_years()
     all_trimesters: Dict[Tuple[int, int], List[str]] = {}
 
     for year in years:
-        year_data = find_zip_files_for_year(year)
+        year_data = get_zip_files_for_year(year)
         all_trimesters.update(year_data)
 
     sorted_trimesters = sorted(
@@ -117,10 +87,7 @@ def download_zip_files(
     trimesters: Dict[Tuple[int, int], List[str]]
 ) -> List[Tuple[int, int, str]]:
     """
-    Faz o download incremental dos ZIPs dos trimestres informados.
-
-    Retorna uma lista de tuplas:
-    (ano, trimestre, caminho_local_zip)
+    Faz o download dos ZIPs informados.
     """
     downloaded_files: List[Tuple[int, int, str]] = []
 
@@ -138,7 +105,7 @@ def download_zip_files(
                 downloaded_files.append((year, quarter, local_path))
                 continue
 
-            response = requests.get(url, stream=True, timeout=60)
+            response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()
 
             with open(local_path, "wb") as file:
