@@ -8,8 +8,7 @@ from urllib.parse import urljoin
 
 import requests
 
-from teste_1.utils import list_links
-
+from utils import list_links
 
 def project_root() -> Path:
     """
