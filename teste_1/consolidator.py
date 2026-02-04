@@ -3,7 +3,6 @@ import zipfile
 from pathlib import Path
 from typing import List, Dict
 
-
 OUTPUT_DIR = Path("output")
 CSV_FILENAME = "despesas_eventos_sinistros.csv"
 ZIP_FILENAME = "consolidado_despesas.zip"
@@ -18,13 +17,15 @@ def ensure_output_dir() -> None:
 
 def write_csv(data: List[Dict[str, object]]) -> Path:
     """
-    Gera o arquivo CSV consolidado com os dados filtrados.
+    Gera o arquivo CSV consolidado.
+    Saída correta: REG_ANS, Ano, Trimestre, ValorDespesas
     """
     ensure_output_dir()
 
     csv_path = OUTPUT_DIR / CSV_FILENAME
 
     fieldnames = [
+        "REG_ANS",
         "CNPJ",
         "RazaoSocial",
         "Ano",
