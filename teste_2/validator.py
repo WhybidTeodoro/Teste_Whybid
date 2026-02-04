@@ -169,6 +169,3 @@ def validate_csv() -> None:
     print(f"   ✔ Válidos: {len(valid_rows)} -> {CSV_VALIDATED}")
     print(f"   ✔ Inválidos: {len(invalid_rows)} -> {CSV_INVALID}")
 
-
-if __name__ == "__main__":
-    validate_csv()

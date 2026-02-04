@@ -264,6 +264,3 @@ def run_enrichment() -> None:
     print("🔗 Fazendo join por REG_ANS...")
     enrich_consolidated(cadop_map)
 
-
-if __name__ == "__main__":
-    run_enrichment()

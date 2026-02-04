@@ -143,6 +143,3 @@ def aggregate() -> None:
     print(f"   ✔ Grupos (RazaoSocial + UF): {len(results)}")
     print(f"   ✔ CSV gerado: {CSV_OUTPUT}")
 
-
-if __name__ == "__main__":
-    aggregate()
