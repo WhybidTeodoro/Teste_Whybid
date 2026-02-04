@@ -19,7 +19,7 @@ def project_root() -> Path:
 def main() -> None:
     """
     Orquestra o Teste 2 na ordem correta:
-    1) Enriquecimento (CADOP) por REG_ANS
+    1) Enriquecimento por REG_ANS
     2) Validação (CNPJ, valor, razão social)
     3) Agregação (total, média, desvio padrão)
     4) Empacotamento ZIP final
