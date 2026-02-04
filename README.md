@@ -201,4 +201,129 @@ Código mais simples e fácil de manter
 Evita complexidade desnecessária para o contexto do teste
 
 
+# Teste 3 — Banco de Dados e Análise (MySQL)
 
+Este teste tem como objetivo utilizar **SQL (MySQL 8.0)** para modelar tabelas, importar dados de arquivos CSV e realizar **análises analíticas** a partir dos dados gerados nos Testes 1 e 2.
+
+O foco foi aplicar conceitos básicos de banco de dados de forma **simples, organizada e fácil de explicar**, priorizando clareza e consistência dos dados.
+
+---
+
+## ▶️ Como Executar o Teste 3
+
+### Pré-requisitos
+- MySQL 8.0 ou superior
+- Acesso a uma ferramenta para executar SQL (ex: MySQL Workbench)
+- Ter executado:
+  - **Teste 1** (gerando `despesas_eventos_sinistros.csv`)
+  - **Teste 2** (gerando `despesas_agregadas.csv`)
+- Ter o arquivo de cadastro das operadoras (CADOP) da ANS (`Relatorio_cadop.csv`)
+
+---
+
+### Ordem de Execução
+
+Os scripts SQL devem ser executados **nesta ordem**:
+
+1️⃣ **Criar as tabelas**
+```sql
+01_ddl_mysql.sql
+```
+2️⃣ Importar os dados dos CSVs
+```
+02_import_mysql.sql
+```
+3️⃣ Executar as queries analíticas
+````
+03_queries_mysql.sql
+````
+
+# 🗄️ Modelagem e Importação de Dados
+
+### Estratégia de modelagem (Trade-off — Normalização)
+
+### tabelas normalizadas
+
+Uma tabela para cadastro de operadoras
+
+Uma tabela para despesas consolidadas por trimestre
+
+Uma tabela para despesas já agregadas
+
+### Justificativa:
+
+Evita duplicação de dados cadastrais
+
+Facilita consultas analíticas
+
+Cadastro muda pouco, despesas crescem com o tempo
+
+Tipos de dados (Trade-off técnico)
+
+Valores monetários: DECIMAL(18,2)
+
+Garante precisão (evita erro de ponto flutuante)
+
+Ano e trimestre: SMALLINT
+
+Mais simples que trabalhar com datas completas
+
+Suficiente para as análises solicitadas
+
+Importação e tratamento de inconsistências
+
+Durante a importação dos CSVs, foram tratados casos como:
+
+Campos obrigatórios vazios
+
+Valores numéricos em formato texto
+
+Trimestres inválidos
+
+Encoding diferente entre arquivos (UTF-8 e LATIN1)
+
+### Estratégia adotada:
+
+Importar primeiro em tabelas temporárias (staging)
+
+Inserir nas tabelas finais apenas dados válidos
+
+Registros inconsistentes são descartados para manter a integridade
+
+# 📊 Queries Analíticas Desenvolvidas
+
+### Query 1 — Crescimento percentual
+
+Identifica as 5 operadoras com maior crescimento percentual
+
+Considera apenas operadoras com dados no primeiro e no último trimestre analisado
+
+#### Justificativa do trade-off:
+
+Evita distorções causadas por dados incompletos
+
+### Query 2 — Distribuição por UF
+
+Lista os 5 estados com maior volume total de despesas
+
+Calcula também a média de despesas por operadora em cada UF
+
+### Query 3 — Operadoras acima da média
+
+Conta quantas operadoras tiveram despesas acima da média geral
+
+Condição: em pelo menos 2 dos 3 trimestres analisados
+
+#### Trade-off técnico:
+
+Uso de CTEs (WITH) para deixar a query mais legível
+
+Boa performance com índices simples
+
+# 📝 Considerações Finais
+
+O teste foi desenvolvido pensando em clareza e simplicidade
+
+As decisões técnicas foram feitas considerando o contexto do problema e o volume de dados
+
+O foco foi resolver corretamente o problema, sem complexidade desnecessária

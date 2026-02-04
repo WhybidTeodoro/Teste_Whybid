@@ -5,7 +5,7 @@ TRUNCATE stg_operadoras;
 TRUNCATE stg_despesas_consolidadas;
 TRUNCATE stg_despesas_agregadas;
 
-LOAD DATA INFILE 'CAMINHO_ABSOLUTO/Relatorio_cadop.csv'
+LOAD DATA LOCAL INFILE 'C:\ProgramData\MySQL\MySQL Server 8.0\Uploads\Relatorio_cadop.csv'
 INTO TABLE stg_operadoras
 CHARACTER SET latin1
 FIELDS TERMINATED BY ';'
@@ -22,7 +22,7 @@ razao_social = @razao,
 modalidade = @modalidade,
 uf = @uf;
 
-
+SET GLOBAL local_infile = 'ON';
 LOAD DATA INFILE 'CAMINHO_ABSOLUTO/despesas_eventos_sinistros.csv'
 INTO TABLE stg_despesas_consolidadas
 CHARACTER SET utf8mb4
@@ -64,18 +64,20 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO despesas_consolidadas (registro_ans, ano, trimestre, valor_despesas)
 SELECT
-    CAST(TRIM(reg_ans) AS UNSIGNED) AS registro_ans,
-    CAST(TRIM(ano) AS UNSIGNED) AS ano,
-    CAST(TRIM(trimestre) AS UNSIGNED) AS trimestre,
-    CAST(REPLACE(TRIM(valordespesas), ',', '.') AS DECIMAL(18,2)) AS valor_despesas
-FROM stg_despesas_consolidadas
+    CAST(TRIM(s.reg_ans) AS UNSIGNED) AS registro_ans,
+    CAST(TRIM(s.ano) AS UNSIGNED) AS ano,
+    CAST(TRIM(s.trimestre) AS UNSIGNED) AS trimestre,
+    CAST(REPLACE(TRIM(s.valordespesas), ',', '.') AS DECIMAL(18,2)) AS valor_despesas
+FROM stg_despesas_consolidadas s
+JOIN operadoras o
+  ON o.registro_ans = CAST(TRIM(s.reg_ans) AS UNSIGNED)
 WHERE
-    TRIM(reg_ans) REGEXP '^[0-9]+$'
-    AND TRIM(ano) REGEXP '^[0-9]{4}$'
-    AND TRIM(trimestre) REGEXP '^[1-4]$'
-    AND TRIM(valordespesas) <> ''
-    AND REPLACE(TRIM(valordespesas), ',', '.') REGEXP '^[0-9]+(\\.[0-9]+)?$'
-    AND CAST(REPLACE(TRIM(valordespesas), ',', '.') AS DECIMAL(18,2)) > 0;
+    TRIM(s.reg_ans) REGEXP '^[0-9]+$'
+    AND TRIM(s.ano) REGEXP '^[0-9]{4}$'
+    AND TRIM(s.trimestre) REGEXP '^[1-4]$'
+    AND TRIM(s.valordespesas) <> ''
+    AND REPLACE(TRIM(s.valordespesas), ',', '.') REGEXP '^[0-9]+(\\.[0-9]+)?$'
+    AND CAST(REPLACE(TRIM(s.valordespesas), ',', '.') AS DECIMAL(18,2)) > 0;
 
 
 INSERT INTO despesas_agregadas (
