@@ -79,7 +79,6 @@ def parse_positive_float(value: str) -> Optional[float]:
     """
     Converte string para float positivo.
     Aceita formatos como '1234.56' e '1.234,56'.
-
     Retorna None se inválido ou <= 0.
     """
     raw = (value or "").strip()
@@ -97,8 +96,7 @@ def parse_positive_float(value: str) -> Optional[float]:
 
 def validate_row(row: Dict[str, str]) -> Tuple[bool, List[str]]:
     """
-    Valida uma linha e retorna:
-    (is_valid, lista_de_motivos)
+    Valida uma linha
     """
     reasons: List[str] = []
 
@@ -119,9 +117,7 @@ def validate_row(row: Dict[str, str]) -> Tuple[bool, List[str]]:
 
 def validate_csv() -> None:
     """
-    Lê o CSV do Teste 1, valida registros e gera:
-    - despesas_validadas.csv (somente registros válidos)
-    - cnpjs_invalidos.csv (relatório para auditoria)
+    Lê o CSV do Teste 1, valida registros
     """
     ensure_output_dir()
 
