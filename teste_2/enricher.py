@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import re
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -22,42 +21,33 @@ def project_root() -> Path:
 
 ROOT_DIR = project_root()
 
+# Entrada do Teste 1 (agora com REG_ANS preenchido)
+CSV_INPUT = ROOT_DIR / "teste_1" / "output" / "despesas_eventos_sinistros.csv"
+
+# Saídas do Teste 2
 OUTPUT_DIR = ROOT_DIR / "teste_2" / "output"
-DATA_DIR = ROOT_DIR / "teste_2" / "data" / "operadoras"
-
-CSV_VALIDATED = OUTPUT_DIR / "despesas_validadas.csv"
 CSV_ENRICHED = OUTPUT_DIR / "despesas_enriquecidas.csv"
-CSV_DUPLICATES = OUTPUT_DIR / "operadoras_cnpj_duplicado.csv"
+CSV_NO_MATCH = OUTPUT_DIR / "reg_ans_sem_match.csv"
 
-OPERADORAS_BASE_URL = "https://dadosabertos.ans.gov.br/FTP/PDA/operadoras_de_plano_de_saude_ativas/"
+# Download do CADOP
+DATA_DIR = ROOT_DIR / "teste_2" / "data" / "cadop"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+CADOP_BASE_URL = "https://dadosabertos.ans.gov.br/FTP/PDA/operadoras_de_plano_de_saude_ativas/"
 
 
 def ensure_dirs() -> None:
     """
-    Cria pastas necessárias.
+    Garante que as pastas de saída existam.
     """
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def normalize_header(text: str) -> str:
-    """
-    Normaliza cabeçalhos para comparar de forma consistente.
-    """
-    return (text or "").strip().upper()
-
-
-def only_digits(value: str) -> str:
-    """
-    Remove tudo que não for dígito.
-    """
-    return re.sub(r"\D", "", value or "")
-
-
 def detect_delimiter(file_path: Path) -> str:
     """
-    Tenta detectar o delimitador do CSV (ex: ';' ou TAB).
-    Mantém simples: usa csv.Sniffer e fallback para ';'.
+    Detecta o delimitador do arquivo (ex: ';' ou TAB).
+    Mantém simples com csv.Sniffer, com fallback para ';'.
     """
     sample = file_path.read_text(encoding="latin-1", errors="ignore")[:4096]
     try:
@@ -67,54 +57,33 @@ def detect_delimiter(file_path: Path) -> str:
         return ";"
 
 
-def parse_cnpj_from_operadoras(raw: str) -> str:
+def normalize_header(text: str) -> str:
     """
-    Converte o CNPJ do cadastro para 14 dígitos.
-
-    Casos:
-    - '12345678000199' -> ok
-    - '1,95419E+13' -> converte para inteiro e pad com zeros à esquerda
+    Normaliza nomes de colunas para facilitar busca.
     """
-    text = (raw or "").strip()
-
-    # Se já tiver muitos dígitos, tenta só limpar
-    digits = only_digits(text)
-    if len(digits) == 14:
-        return digits
-
-    # Tenta lidar com notação científica (ex: 1,95419E+13)
-    # Troca vírgula por ponto e usa Decimal para evitar float
-    try:
-        dec = Decimal(text.replace(",", "."))
-        as_int = int(dec.to_integral_value(rounding="ROUND_HALF_UP"))
-        return str(as_int).zfill(14)
-    except (InvalidOperation, ValueError):
-        # Última tentativa: só limpar dígitos e pad se der
-        if digits:
-            return digits.zfill(14)
-        return ""
+    return (text or "").strip().upper()
 
 
-def download_operadoras_csv() -> Path:
+def download_latest_cadop_csv() -> Path:
     """
-    Baixa o CSV de operadoras ativas (Relatorio_cadop.csv).
+    Baixa o CSV mais recente na pasta de operadoras ativas.
     """
     ensure_dirs()
 
-    links = list_links(OPERADORAS_BASE_URL)
+    links = list_links(CADOP_BASE_URL)
     csv_links = sorted([link for link in links if link.lower().endswith(".csv")])
 
     if not csv_links:
-        raise RuntimeError("Nenhum CSV encontrado na pasta de operadoras ativas.")
+        raise RuntimeError("Nenhum CSV encontrado na pasta de operadoras ativas (CADOP).")
 
     filename = csv_links[-1]
-    url = urljoin(OPERADORAS_BASE_URL, filename)
+    url = urljoin(CADOP_BASE_URL, filename)
     local_path = DATA_DIR / filename
 
     if local_path.exists():
         return local_path
 
-    print(f"⬇️  Baixando cadastro de operadoras: {filename}")
+    print(f"⬇️  Baixando CADOP: {filename}")
     response = requests.get(url, stream=True, timeout=60)
     response.raise_for_status()
 
@@ -126,161 +95,174 @@ def download_operadoras_csv() -> Path:
     return local_path
 
 
-def pick_first(row: Dict[str, str], keys: List[str]) -> str:
+def parse_cnpj(raw: str) -> str:
     """
-    Retorna o primeiro valor não vazio para as chaves informadas.
+    Converte CNPJ do CADOP para 14 dígitos.
+    Trata casos como '1,95419E+13' (notação científica).
+
+    Retorna string com 14 dígitos, ou '' se não der para converter.
     """
-    for k in keys:
-        value = (row.get(k, "") or "").strip()
-        if value:
-            return value
-    return ""
+    text = (raw or "").strip()
+    if not text:
+        return ""
+
+    # Caso já esteja "limpo" (raríssimo no CADOP, mas ok)
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if len(digits) == 14:
+        return digits
+
+    # Notação científica com vírgula (ex: 1,95419E+13)
+    try:
+        dec = Decimal(text.replace(",", "."))
+        as_int = int(dec.to_integral_value(rounding="ROUND_HALF_UP"))
+        return str(as_int).zfill(14)
+    except (InvalidOperation, ValueError):
+        return digits.zfill(14) if digits else ""
 
 
-def load_operadoras_map(operadoras_csv: Path) -> Tuple[Dict[str, Dict[str, str]], List[Dict[str, str]]]:
+def load_cadop_map(cadop_csv: Path) -> Dict[str, Dict[str, str]]:
     """
-    Carrega o cadastro em um dicionário:
-    cnpj_14_digitos -> {RegistroANS, Modalidade, UF}
+    Carrega o cadastro em memória, criando um mapa:
+    REGISTRO_OPERADORA -> {CNPJ, RazaoSocial, Modalidade, UF}
 
-    Também gera um relatório simples de duplicados divergentes.
+    Se houver REGISTRO_OPERADORA duplicado, mantém o primeiro (simples).
     """
-    delimiter = detect_delimiter(operadoras_csv)
+    delimiter = detect_delimiter(cadop_csv)
+    cadop_map: Dict[str, Dict[str, str]] = {}
 
-    operadoras_map: Dict[str, Dict[str, str]] = {}
-    duplicates: List[Dict[str, str]] = []
-
-    with operadoras_csv.open(mode="r", encoding="latin-1", newline="") as f:
+    with cadop_csv.open(mode="r", encoding="latin-1", newline="") as f:
         reader = csv.DictReader(f, delimiter=delimiter)
-
         if not reader.fieldnames:
-            raise ValueError("CSV de operadoras não possui cabeçalho.")
+            raise ValueError("CADOP CSV não possui cabeçalho.")
 
         normalized_headers = [normalize_header(h) for h in reader.fieldnames]
 
         for raw_row in reader:
             row: Dict[str, str] = {}
-            for original_key, normalized_key in zip(raw_row.keys(), normalized_headers):
-                row[normalized_key] = (raw_row.get(original_key, "") or "").strip()
+            for original_key, norm_key in zip(raw_row.keys(), normalized_headers):
+                row[norm_key] = (raw_row.get(original_key, "") or "").strip()
 
-            cnpj = parse_cnpj_from_operadoras(row.get("CNPJ", ""))
-            if not cnpj:
+            registro = row.get("REGISTRO_OPERADORA", "").strip()
+            if not registro:
                 continue
 
-            registro_ans = pick_first(row, ["REGISTRO_OPERADORA", "REGISTROANS", "REGISTRO_ANS", "REG_ANS"])
-            modalidade = pick_first(row, ["MODALIDADE"])
-            uf = pick_first(row, ["UF"])
-
-            payload = {"RegistroANS": registro_ans, "Modalidade": modalidade, "UF": uf}
-
-            if cnpj not in operadoras_map:
-                operadoras_map[cnpj] = payload
+            # Mantém o primeiro registro (trade-off simples)
+            if registro in cadop_map:
                 continue
 
-            if operadoras_map[cnpj] != payload:
-                prev = operadoras_map[cnpj]
-                duplicates.append({
-                    "CNPJ": cnpj,
-                    "RegistroANS_1": prev.get("RegistroANS", ""),
-                    "Modalidade_1": prev.get("Modalidade", ""),
-                    "UF_1": prev.get("UF", ""),
-                    "RegistroANS_2": payload.get("RegistroANS", ""),
-                    "Modalidade_2": payload.get("Modalidade", ""),
-                    "UF_2": payload.get("UF", ""),
-                })
+            cnpj = parse_cnpj(row.get("CNPJ", ""))
+            razao = row.get("RAZAO_SOCIAL", "").strip()
+            modalidade = row.get("MODALIDADE", "").strip()
+            uf = row.get("UF", "").strip()
 
-    return operadoras_map, duplicates
+            cadop_map[registro] = {
+                "CNPJ": cnpj,
+                "RazaoSocial": razao,
+                "Modalidade": modalidade,
+                "UF": uf,
+                "RegistroANS": registro,
+            }
+
+    return cadop_map
 
 
-def write_duplicates_report(rows: List[Dict[str, str]]) -> None:
+def enrich_consolidated(cadop_map: Dict[str, Dict[str, str]]) -> None:
     """
-    Salva relatório de CNPJs duplicados divergentes no cadastro.
-    """
-    if not rows:
-        return
+    Faz join:
+    REG_ANS (despesas do Teste 1) -> REGISTRO_OPERADORA (CADOP)
 
-    with CSV_DUPLICATES.open(mode="w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "CNPJ",
-                "RegistroANS_1", "Modalidade_1", "UF_1",
-                "RegistroANS_2", "Modalidade_2", "UF_2",
-            ],
-            delimiter=";",
-        )
-        writer.writeheader()
-        writer.writerows(rows)
-
-
-def enrich_validated_csv(operadoras_map: Dict[str, Dict[str, str]]) -> None:
-    """
-    Faz um left join no CSV validado, adicionando:
+    Adiciona:
     RegistroANS, Modalidade, UF
+    e também preenche CNPJ e RazaoSocial quando possível.
     """
-    if not CSV_VALIDATED.exists():
-        raise FileNotFoundError(
-            f"CSV validado não encontrado: {CSV_VALIDATED}. Rode: python teste_2/validator.py"
-        )
+    if not CSV_INPUT.exists():
+        raise FileNotFoundError(f"CSV do Teste 1 não encontrado: {CSV_INPUT}")
 
-    with CSV_VALIDATED.open(mode="r", encoding="utf-8", newline="") as fin:
+    no_match_rows: List[Dict[str, str]] = []
+
+    with CSV_INPUT.open(mode="r", encoding="utf-8", newline="") as fin:
         reader = csv.DictReader(fin, delimiter=";")
-
         if not reader.fieldnames:
-            raise ValueError("CSV validado não possui cabeçalho.")
+            raise ValueError("CSV de entrada não possui cabeçalho.")
 
         input_fields = list(reader.fieldnames)
-        output_fields = input_fields + ["RegistroANS", "Modalidade", "UF"]
+
+        # Garante que as colunas existam no output
+        extra_fields = ["RegistroANS", "Modalidade", "UF"]
+        output_fields = input_fields[:]
+
+        for col in extra_fields:
+            if col not in output_fields:
+                output_fields.append(col)
 
         with CSV_ENRICHED.open(mode="w", encoding="utf-8", newline="") as fout:
             writer = csv.DictWriter(fout, fieldnames=output_fields, delimiter=";")
             writer.writeheader()
 
-            match = 0
-            no_match = 0
+            match_count = 0
+            no_match_count = 0
 
             for row in reader:
-                cnpj = only_digits(row.get("CNPJ", ""))
-                cadastro = operadoras_map.get(cnpj)
+                reg_ans = (row.get("REG_ANS", "") or "").strip()
+                cadastro = cadop_map.get(reg_ans)
 
                 if cadastro:
-                    row["RegistroANS"] = cadastro.get("RegistroANS") or "Desconhecido"
-                    row["Modalidade"] = cadastro.get("Modalidade") or "Desconhecido"
-                    row["UF"] = cadastro.get("UF") or "Desconhecido"
-                    match += 1
+                    # Preenche CNPJ e RazaoSocial se estiverem vazios
+                    if not (row.get("CNPJ", "") or "").strip():
+                        row["CNPJ"] = cadastro["CNPJ"]
+                    if not (row.get("RazaoSocial", "") or "").strip():
+                        row["RazaoSocial"] = cadastro["RazaoSocial"]
+
+                    row["RegistroANS"] = cadastro["RegistroANS"] or "Desconhecido"
+                    row["Modalidade"] = cadastro["Modalidade"] or "Desconhecido"
+                    row["UF"] = cadastro["UF"] or "Desconhecido"
+                    match_count += 1
                 else:
                     row["RegistroANS"] = "Desconhecido"
                     row["Modalidade"] = "Desconhecido"
                     row["UF"] = "Desconhecido"
-                    no_match += 1
+                    no_match_count += 1
+
+                    no_match_rows.append({
+                        "REG_ANS": reg_ans,
+                        "Ano": (row.get("Ano", "") or "").strip(),
+                        "Trimestre": (row.get("Trimestre", "") or "").strip(),
+                    })
 
                 writer.writerow(row)
 
+    # Relatório simples de registros sem match
+    if no_match_rows:
+        with CSV_NO_MATCH.open(mode="w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["REG_ANS", "Ano", "Trimestre"], delimiter=";")
+            writer.writeheader()
+            writer.writerows(no_match_rows)
+
     print("✅ Enriquecimento concluído!")
-    print(f"   ✔ Match no cadastro: {match}")
-    print(f"   ✔ Sem match (Desconhecido): {no_match}")
+    print(f"   ✔ Linhas com match: {match_count}")
+    print(f"   ✔ Linhas sem match: {no_match_count}")
     print(f"   ✔ CSV gerado: {CSV_ENRICHED}")
+    if no_match_rows:
+        print(f"   ⚠ Relatório sem match: {CSV_NO_MATCH}")
 
 
 def run_enrichment() -> None:
     """
-    Pipeline do passo 2.2:
-    - baixar cadastro
-    - carregar mapa por CNPJ
-    - enriquecer despesas_validadas.csv
+    - baixa o CADOP
+    - cria mapa por REGISTRO_OPERADORA
+    - enriquece o consolidado usando REG_ANS
     """
     ensure_dirs()
 
-    operadoras_csv = download_operadoras_csv()
-    print(f"📄 Cadastro baixado: {operadoras_csv.name}")
+    print("🔍 Baixando e lendo cadastro (CADOP)...")
+    cadop_csv = download_latest_cadop_csv()
 
-    operadoras_map, duplicates = load_operadoras_map(operadoras_csv)
-    print(f"📥 Operadoras carregadas (CNPJ únicos): {len(operadoras_map)}")
+    print("📥 Carregando cadastro em memória...")
+    cadop_map = load_cadop_map(cadop_csv)
+    print(f"   ✔ Cadastros carregados: {len(cadop_map)}")
 
-    if duplicates:
-        write_duplicates_report(duplicates)
-        print(f"⚠️  Duplicados divergentes: {len(duplicates)} -> {CSV_DUPLICATES}")
-
-    enrich_validated_csv(operadoras_map)
+    print("🔗 Fazendo join por REG_ANS...")
+    enrich_consolidated(cadop_map)
 
 
 if __name__ == "__main__":
